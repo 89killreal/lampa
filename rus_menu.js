@@ -2,7 +2,7 @@
  * «Русское» — раздел с российскими фильмами и сериалами для Lampa.
  * Только каталог (данные TMDB), видео плагин не содержит.
  * Работает с обычной Lampa, источник данных — TMDB.
- * Версия 8: в кинотеатрах фильмы и сериалы, плавное переключение, «18+» по новинкам.
+ * Версия 10: жанр «Реальные события», на каждой плитке видно, как отсортированы фильмы.
  */
 (function () {
     'use strict';
@@ -104,7 +104,19 @@
     };
 
     var providers = null;      // id сети -> id провайдера
+    var providersFallback = {};
     var providersWait = [];
+
+    function prov(id) {
+        return (providers || providersFallback)[id];
+    }
+
+    function provAll() {
+        var map = providers || providersFallback;
+        var list = [];
+        for (var id in map) list.push(map[id]);
+        return list.join('|');
+    }
 
     function loadProviders(done) {
         if (providers) return done();
@@ -112,8 +124,10 @@
         providersWait.push(done);
         if (providersWait.length > 1) return;
 
-        function finish() {
-            providers = providers || {};
+        function finish(found) {
+            // при ошибке не запоминаем пустой результат — в следующий раз попробуем снова
+            providers = found || null;
+            providersFallback = found || {};
             var list = providersWait;
             providersWait = [];
             list.forEach(function (fn) { fn(); });
@@ -133,12 +147,67 @@
                     }
                 });
 
-                providers = found;
-                finish();
-            }, finish);
+                finish(found);
+            }, function () {
+                finish(null);
+            });
         } catch (e) {
-            finish();
+            finish(null);
         }
+    }
+
+    // ---------- «Основано на реальных событиях» ----------
+    // Номер ключевого слова ищем в TMDB по названию; 9672 — запасной вариант.
+
+    var TRUE_STORY_FALLBACK = '9672';
+    var trueStory = null;
+
+    function loadTrueStory(done) {
+        if (trueStory) return done();
+
+        try {
+            var net = new Lampa.Reguest();
+            var url = Lampa.TMDB.api('search/keyword?query=' + encodeURIComponent('based on true story') + '&api_key=' + Lampa.TMDB.key());
+
+            net.timeout(8000);
+            net.silent(url, function (json) {
+                var ids = [];
+
+                ((json && json.results) || []).forEach(function (k) {
+                    var name = String(k.name || '').toLowerCase();
+                    if (name === 'based on true story' || name === 'based on a true story') ids.push(k.id);
+                });
+
+                trueStory = ids.length ? ids.join('|') : TRUE_STORY_FALLBACK;
+                done();
+            }, function () {
+                done();
+            });
+        } catch (e) {
+            done();
+        }
+    }
+
+    function trueStoryIds() {
+        return trueStory || TRUE_STORY_FALLBACK;
+    }
+
+    // ---------- как отсортирована подборка ----------
+
+    function sortLabel(url) {
+        if (/sort_by=popularity/.test(url)) return 'популярные';
+        if (/sort_by=(primary_release_date|first_air_date)\.desc/.test(url)) return 'новинки';
+        if (/sort_by=vote_average/.test(url)) return 'лучшие по оценкам';
+        if (/sort_by=vote_count/.test(url)) return 'известные';
+        return '';
+    }
+
+    function tileSub(tile) {
+        var sub = tile.sub || '';
+        var label = tile.url ? sortLabel(tile.url) : '';
+
+        if (!label || /популяр|новинк|лучш|известн/i.test(sub + ' ' + tile.title)) return sub;
+        return sub ? sub + ' · ' + label : label.charAt(0).toUpperCase() + label.slice(1);
     }
 
     function cinemaSections(n) {
@@ -148,10 +217,10 @@
             { title: 'Сериалы', sub: 'Новинки', icon: 'clock', url: 'discover/tv?with_networks=' + n[0] + '&sort_by=first_air_date.desc&first_air_date.lte=' + t, c1: n[2], c2: n[3], light: !!n[4] }
         ];
 
-        var prov = providers && providers[n[0]];
+        var pid = prov(n[0]);
 
-        if (prov) {
-            var base = 'discover/movie?with_watch_providers=' + prov + '&watch_region=RU';
+        if (pid) {
+            var base = 'discover/movie?with_watch_providers=' + pid + '&watch_region=RU';
             tiles.push(
                 { title: 'Фильмы', sub: 'Популярные', icon: 'film', url: base + '&sort_by=popularity.desc', c1: n[2], c2: n[3], light: !!n[4] },
                 { title: 'Фильмы', sub: 'Новинки', icon: 'clock', url: base + '&sort_by=primary_release_date.desc&primary_release_date.lte=' + t, c1: n[2], c2: n[3], light: !!n[4] },
@@ -159,7 +228,7 @@
             );
         }
 
-        return [{ title: n[1] + (prov ? '' : ' — фильмов этого сервиса нет в TMDB'), tiles: tiles }];
+        return [{ title: n[1], tiles: tiles }];
     }
 
     function sections() {
@@ -181,19 +250,21 @@
                     { title: 'Фильмы', sub: 'Популярно сейчас', icon: 'fire', url: 'discover/movie?' + RU + '&sort_by=popularity.desc&primary_release_date.gte=' + daysAgo(120) + '&primary_release_date.lte=' + t, c1: '#b3122a', c2: '#ff4d4d' },
                     { title: 'Сериалы', sub: 'Популярно сейчас', icon: 'fire', url: 'discover/tv?' + RU + '&sort_by=popularity.desc&air_date.gte=' + daysAgo(30) + '&air_date.lte=' + t, c1: '#8a0f5c', c2: '#e83e8c' },
                     { title: 'Новинки кинотеатров', sub: 'Сериалы', icon: 'news', url: 'discover/tv?with_networks=' + allCinemas + '&sort_by=first_air_date.desc&first_air_date.lte=' + t, c1: '#1f2a44', c2: '#4b6cb7' }
-                ]
+                ].concat(provAll() ? [
+                    { title: 'Новинки кинотеатров', sub: 'Фильмы', icon: 'news', url: 'discover/movie?with_watch_providers=' + provAll() + '&watch_region=RU&sort_by=primary_release_date.desc&primary_release_date.lte=' + t + '&vote_count.gte=1', c1: '#14365c', c2: '#2f80c9' }
+                ] : [])
             },
             {
                 title: 'Онлайн-кинотеатры',
                 tiles: CINEMAS.map(function (n) {
-                    var tile = net(n, 'Фильмы и сериалы', 'play');
+                    var tile = net(n, prov(n[0]) ? 'Фильмы и сериалы' : 'Сериалы', 'play');
                     tile.service = n[0];
                     return tile;
                 })
             },
             {
                 title: 'Телеканалы',
-                tiles: CHANNELS.map(function (n) { return net(n, 'Сериалы и шоу', 'tv'); })
+                tiles: CHANNELS.map(function (n) { return net(n, 'Сериалы', 'tv'); })
             },
             {
                 title: 'Мультфильмы',
@@ -225,6 +296,8 @@
                         c1: 'hsl(' + hue + ',60%,28%)', c2: 'hsl(' + hue + ',65%,46%)'
                     };
                 }).concat([
+                    { title: 'Реальные события', sub: 'Фильмы', icon: 'news', url: 'discover/movie?' + RU + '&with_keywords=' + trueStoryIds() + '&sort_by=popularity.desc', c1: '#3e4a1a', c2: '#7d8f2e' },
+                    { title: 'Реальные события', sub: 'Сериалы', icon: 'news', url: 'discover/tv?' + RU + '&with_keywords=' + trueStoryIds() + '&sort_by=popularity.desc', c1: '#2f3d14', c2: '#6a7d25' },
                     // Ключевые слова TMDB: 190370 — erotic movie, 155477 — softcore, 445 — pornography.
                     // Российских фильмов с ними почти нет, поэтому подборки без фильтра по стране.
                     { title: 'Эротика', sub: 'Новинки', icon: 'flame', url: 'discover/movie?with_keywords=190370|155477&sort_by=primary_release_date.desc&primary_release_date.lte=' + t, c1: '#4a0d1f', c2: '#9b1f42' },
@@ -252,7 +325,7 @@
             '.rus-tile__icon svg{width:100%;height:100%}' +
             '.rus-tile__badge{display:inline-block;font-size:1.2em;font-weight:800;border:.15em solid currentColor;' +
             'border-radius:.4em;padding:.05em .3em}' +
-            '.rus-tile__name{position:relative;font-size:1.75em;font-weight:800;line-height:1.05;letter-spacing:-.01em}' +
+            '.rus-tile__name{position:relative;padding-right:1.6em;font-size:1.75em;font-weight:800;line-height:1.05;letter-spacing:-.01em}' +
             '.rus-tile__sub{position:relative;font-size:1.05em;font-weight:500;opacity:.9;margin-top:.35em}' +
             '.rus-tile.focus{border-color:#fff}';
 
@@ -269,7 +342,8 @@
         var last;
 
         function tileTitle(tile) {
-            return tile.title + (tile.sub ? ': ' + tile.sub.toLowerCase() : '');
+            var sub = tileSub(tile);
+            return tile.title + (sub ? ' — ' + sub.toLowerCase() : '');
         }
 
         function build(list) {
@@ -288,7 +362,7 @@
 
                     el.find('.rus-tile__icon').html(ICONS[tile.icon] || '');
                     el.find('.rus-tile__name').text(tile.title);
-                    el.find('.rus-tile__sub').text(tile.sub || '');
+                    el.find('.rus-tile__sub').text(tile.service ? (tile.sub || '') : tileSub(tile));
                     el.css('background', 'linear-gradient(135deg,' + tile.c1 + ',' + tile.c2 + ')');
 
                     el.on('hover:focus', function () {
@@ -334,16 +408,14 @@
 
             CINEMAS.forEach(function (c) { if (c[0] === service) n = c; });
 
-            if (n) {
-                this.activity.loader(true);
-                loadProviders(function () {
-                    build(cinemaSections(n));
+            this.activity.loader(true);
+
+            loadProviders(function () {
+                loadTrueStory(function () {
+                    build(n ? cinemaSections(n) : sections());
                     finishCreate();
                 });
-            } else {
-                build(sections());
-                finishCreate();
-            }
+            });
         };
 
         function finishCreate() {
