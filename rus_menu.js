@@ -2,7 +2,7 @@
  * «Русское» — раздел с российскими фильмами и сериалами для Lampa.
  * Только каталог (данные TMDB), видео плагин не содержит.
  * Работает с обычной Lampa, источник данных — TMDB.
- * Версия 7: плитки с цветами сервисов, значками и крупными подписями.
+ * Версия 8: в кинотеатрах фильмы и сериалы, плавное переключение, «18+» по новинкам.
  */
 (function () {
     'use strict';
@@ -88,6 +88,80 @@
         [10751, 'Семейные', 'home'], [10749, 'Мелодрамы', 'heart']
     ];
 
+    // ---------- фильмы онлайн-кинотеатров ----------
+    // У фильмов в TMDB нет «телесети», поэтому берём данные «где посмотреть» (регион RU).
+    // Номера провайдеров ищем по названию прямо в TMDB при первом открытии.
+
+    var PROVIDER_MATCH = {
+        3827: /кинопоиск|kinopoisk/i,
+        3871: /^okko/i,
+        3923: /^ivi|^иви/i,
+        5806: /^wink/i,
+        2493: /^start(\.ru)?$/i,
+        2859: /^premier/i,
+        4085: /^kion|^кион/i,
+        3882: /^more\.?\s?tv/i
+    };
+
+    var providers = null;      // id сети -> id провайдера
+    var providersWait = [];
+
+    function loadProviders(done) {
+        if (providers) return done();
+
+        providersWait.push(done);
+        if (providersWait.length > 1) return;
+
+        function finish() {
+            providers = providers || {};
+            var list = providersWait;
+            providersWait = [];
+            list.forEach(function (fn) { fn(); });
+        }
+
+        try {
+            var net = new Lampa.Reguest();
+            var url = Lampa.TMDB.api('watch/providers/movie?watch_region=RU&language=ru&api_key=' + Lampa.TMDB.key());
+
+            net.timeout(8000);
+            net.silent(url, function (json) {
+                var found = {};
+
+                ((json && json.results) || []).forEach(function (p) {
+                    for (var id in PROVIDER_MATCH) {
+                        if (!found[id] && PROVIDER_MATCH[id].test(String(p.provider_name || ''))) found[id] = p.provider_id;
+                    }
+                });
+
+                providers = found;
+                finish();
+            }, finish);
+        } catch (e) {
+            finish();
+        }
+    }
+
+    function cinemaSections(n) {
+        var t = fmt(new Date());
+        var tiles = [
+            { title: 'Сериалы', sub: 'Популярные', icon: 'series', url: 'discover/tv?with_networks=' + n[0] + '&sort_by=popularity.desc', c1: n[2], c2: n[3], light: !!n[4] },
+            { title: 'Сериалы', sub: 'Новинки', icon: 'clock', url: 'discover/tv?with_networks=' + n[0] + '&sort_by=first_air_date.desc&first_air_date.lte=' + t, c1: n[2], c2: n[3], light: !!n[4] }
+        ];
+
+        var prov = providers && providers[n[0]];
+
+        if (prov) {
+            var base = 'discover/movie?with_watch_providers=' + prov + '&watch_region=RU';
+            tiles.push(
+                { title: 'Фильмы', sub: 'Популярные', icon: 'film', url: base + '&sort_by=popularity.desc', c1: n[2], c2: n[3], light: !!n[4] },
+                { title: 'Фильмы', sub: 'Новинки', icon: 'clock', url: base + '&sort_by=primary_release_date.desc&primary_release_date.lte=' + t, c1: n[2], c2: n[3], light: !!n[4] },
+                { title: 'Русские фильмы', sub: 'Популярные', icon: 'star', url: base + '&' + RU + '&sort_by=popularity.desc', c1: n[2], c2: n[3], light: !!n[4] }
+            );
+        }
+
+        return [{ title: n[1] + (prov ? '' : ' — фильмов этого сервиса нет в TMDB'), tiles: tiles }];
+    }
+
     function sections() {
         var t = fmt(new Date());
         var allCinemas = CINEMAS.map(function (n) { return n[0]; }).join('|');
@@ -111,7 +185,11 @@
             },
             {
                 title: 'Онлайн-кинотеатры',
-                tiles: CINEMAS.map(function (n) { return net(n, 'Сериалы', 'play'); })
+                tiles: CINEMAS.map(function (n) {
+                    var tile = net(n, 'Фильмы и сериалы', 'play');
+                    tile.service = n[0];
+                    return tile;
+                })
             },
             {
                 title: 'Телеканалы',
@@ -149,8 +227,8 @@
                 }).concat([
                     // Ключевые слова TMDB: 190370 — erotic movie, 155477 — softcore, 445 — pornography.
                     // Российских фильмов с ними почти нет, поэтому подборки без фильтра по стране.
-                    { title: 'Эротика', sub: 'Фильмы', icon: 'flame', url: 'discover/movie?with_keywords=190370|155477&sort_by=popularity.desc', c1: '#4a0d1f', c2: '#9b1f42' },
-                    { title: '18+', sub: 'Фильмы', icon: 'adult', url: 'discover/movie?include_adult=true&with_keywords=445&sort_by=popularity.desc', c1: '#1a0008', c2: '#5c0a1e' }
+                    { title: 'Эротика', sub: 'Новинки', icon: 'flame', url: 'discover/movie?with_keywords=190370|155477&sort_by=primary_release_date.desc&primary_release_date.lte=' + t, c1: '#4a0d1f', c2: '#9b1f42' },
+                    { title: '18+', sub: 'Новинки', icon: 'adult', url: 'discover/movie?include_adult=true&with_keywords=445&sort_by=primary_release_date.desc&primary_release_date.lte=' + t, c1: '#1a0008', c2: '#5c0a1e' }
                 ])
             }
         ];
@@ -168,21 +246,15 @@
             '.rus-menu__grid{display:flex;flex-wrap:wrap;margin:0 -.6em}' +
             '.rus-tile{position:relative;overflow:hidden;width:15em;height:8.5em;margin:.6em;border-radius:1em;' +
             'padding:1em 1.1em;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;' +
-            'color:#fff;box-shadow:0 .4em 1.2em rgba(0,0,0,.4);transition:transform .15s,box-shadow .15s}' +
-            '.rus-tile:after{content:"";position:absolute;left:0;right:0;bottom:0;height:60%;' +
-            'background:linear-gradient(to top,rgba(0,0,0,.28),rgba(0,0,0,0));pointer-events:none}' +
+            'color:#fff;border:.22em solid transparent}' +
             '.rus-tile--light{color:#1b1b1b}' +
-            '.rus-tile--light:after{background:none}' +
             '.rus-tile__icon{position:absolute;top:.8em;right:.9em;width:2.6em;height:2.6em;opacity:.9}' +
             '.rus-tile__icon svg{width:100%;height:100%}' +
             '.rus-tile__badge{display:inline-block;font-size:1.2em;font-weight:800;border:.15em solid currentColor;' +
             'border-radius:.4em;padding:.05em .3em}' +
-            '.rus-tile__name{position:relative;z-index:1;font-size:1.75em;font-weight:800;line-height:1.05;' +
-            'letter-spacing:-.01em;text-shadow:0 .08em .3em rgba(0,0,0,.35)}' +
-            '.rus-tile--light .rus-tile__name{text-shadow:none}' +
-            '.rus-tile__sub{position:relative;z-index:1;font-size:1.05em;font-weight:500;opacity:.9;margin-top:.35em}' +
-            '.rus-tile.focus{transform:scale(1.08);box-shadow:0 .6em 2em rgba(0,0,0,.6);' +
-            'outline:.22em solid #fff;outline-offset:.18em;z-index:2}';
+            '.rus-tile__name{position:relative;font-size:1.75em;font-weight:800;line-height:1.05;letter-spacing:-.01em}' +
+            '.rus-tile__sub{position:relative;font-size:1.05em;font-weight:500;opacity:.9;margin-top:.35em}' +
+            '.rus-tile.focus{border-color:#fff}';
 
         $('<style id="rus-menu-style">' + css + '</style>').appendTo('head');
     }
@@ -190,6 +262,7 @@
     // ---------- страница с плитками ----------
 
     function Page(object) {
+        var self = this;
         var scroll = new Lampa.Scroll({ mask: true, over: true, step: 300 });
         var html = $('<div></div>');
         var body = $('<div class="rus-menu"></div>');
@@ -199,10 +272,8 @@
             return tile.title + (tile.sub ? ': ' + tile.sub.toLowerCase() : '');
         }
 
-        this.create = function () {
-            addStyle();
-
-            sections().forEach(function (section) {
+        function build(list) {
+            list.forEach(function (section) {
                 body.append($('<div class="rus-menu__title"></div>').text(section.title));
 
                 var grid = $('<div class="rus-menu__grid"></div>');
@@ -222,10 +293,22 @@
 
                     el.on('hover:focus', function () {
                         last = el[0];
-                        scroll.update(el, true);
+                        // без центрирования: страница сдвигается только когда плитка уходит за край
+                        scroll.update(el, false);
                     });
 
                     el.on('hover:enter', function () {
+                        if (tile.service) {
+                            Lampa.Activity.push({
+                                url: '',
+                                title: tile.title,
+                                component: COMPONENT,
+                                rus_service: tile.service,
+                                page: 1
+                            });
+                            return;
+                        }
+
                         Lampa.Activity.push({
                             url: tile.url,
                             title: tileTitle(tile),
@@ -241,7 +324,29 @@
 
                 body.append(grid);
             });
+        }
 
+        this.create = function () {
+            addStyle();
+
+            var service = object && object.rus_service;
+            var n = null;
+
+            CINEMAS.forEach(function (c) { if (c[0] === service) n = c; });
+
+            if (n) {
+                this.activity.loader(true);
+                loadProviders(function () {
+                    build(cinemaSections(n));
+                    finishCreate();
+                });
+            } else {
+                build(sections());
+                finishCreate();
+            }
+        };
+
+        function finishCreate() {
             // minus() ограничивает высоту области под шапкой — без этого Lampa не прокручивает страницу.
             if (scroll.minus) scroll.minus();
 
@@ -250,9 +355,9 @@
 
             if (Lampa.Layer && Lampa.Layer.update) Lampa.Layer.update(html);
 
-            this.activity.loader(false);
-            this.activity.toggle();
-        };
+            self.activity.loader(false);
+            self.activity.toggle();
+        }
 
         this.start = function () {
             Lampa.Controller.add('content', {
