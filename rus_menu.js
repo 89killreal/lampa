@@ -2,7 +2,7 @@
  * «Русское» — раздел с российскими фильмами и сериалами для Lampa.
  * Только каталог (данные TMDB), видео плагин не содержит.
  * Работает с обычной Lampa, источник данных — TMDB.
- * Версия 6: страница с плитками-подборками.
+ * Версия 7: плитки с цветами сервисов, значками и крупными подписями.
  */
 (function () {
     'use strict';
@@ -26,76 +26,115 @@
         return fmt(d);
     }
 
+    // ---------- значки (простые, собственные) ----------
+
+    function svg(inner) {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+            'stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+    }
+
+    var ICONS = {
+        fire: svg('<path d="M12 3c1 3 4 5 4 9a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-8z"/>'),
+        film: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>'),
+        series: svg('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M8 3l4 3 4-3"/>'),
+        play: svg('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9l5 3-5 3z"/>'),
+        tv: svg('<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>'),
+        smile: svg('<circle cx="12" cy="12" r="9"/><path d="M8 14c1 2 7 2 8 0"/><path d="M9 9h.01M15 9h.01"/>'),
+        star: svg('<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>'),
+        news: svg('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>'),
+        clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>'),
+        laugh: svg('<circle cx="12" cy="12" r="9"/><path d="M7 13h10a5 5 0 0 1-10 0z"/>'),
+        drama: svg('<circle cx="12" cy="12" r="9"/><path d="M8 16c1-2 7-2 8 0"/><path d="M9 9h.01M15 9h.01"/>'),
+        bolt: svg('<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>'),
+        shield: svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>'),
+        lock: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+        search: svg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>'),
+        eye: svg('<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+        rocket: svg('<path d="M5 15c-1 1-2 4-2 6 2 0 5-1 6-2M9 15l-3-3c2-6 7-9 14-9 0 7-3 12-9 14z"/><circle cx="15" cy="9" r="1.5"/>'),
+        column: svg('<path d="M4 21h16M6 18V9M10 18V9M14 18V9M18 18V9M3 9l9-5 9 5z"/>'),
+        home: svg('<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'),
+        heart: svg('<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>'),
+        hammer: svg('<path d="M4 20l9-9M12 4l8 8-3 3-8-8z"/>'),
+        flame: svg('<path d="M12 21a6 6 0 0 1-6-6c0-4 6-8 6-12 0 4 6 8 6 12a6 6 0 0 1-6 6z"/>'),
+        adult: '<span class="rus-tile__badge">18+</span>'
+    };
+
     // ---------- подборки ----------
-    // Номера сетей проверены по страницам themoviedb.org/network/<id>
+    // Номера сетей проверены по страницам themoviedb.org/network/<id>.
+    // Цвета подобраны близкими к фирменным, логотипы не используются.
 
     var CINEMAS = [
-        [3827, 'Кинопоиск', '#ff6a00', '#ffa000'],
-        [3871, 'Okko', '#5b2ee0', '#9b5cff'],
-        [3923, 'Иви', '#d0104c', '#ff4f7a'],
-        [5806, 'Wink', '#ff4b2b', '#ff9a3c'],
-        [2493, 'START', '#1d1d1f', '#4a4a52'],
-        [2859, 'PREMIER', '#c9a300', '#f2d34f'],
-        [4085, 'KION', '#7a2bd9', '#e0459b'],
-        [3882, 'more.tv', '#0b5cff', '#3fa0ff']
+        [3827, 'Кинопоиск', '#ff5c00', '#ffa31a'],
+        [3871, 'Okko', '#4b1ad6', '#8c5cff'],
+        [3923, 'Иви', '#e3003b', '#ff4a76'],
+        [5806, 'Wink', '#ff4a1c', '#ff8a3d'],
+        [2493, 'START', '#121214', '#3a3a42'],
+        [2859, 'PREMIER', '#f5c400', '#ffe066', true],
+        [4085, 'KION', '#6b1fd1', '#d83aa0'],
+        [3882, 'more.tv', '#0a4dff', '#3f9bff']
     ];
 
     var CHANNELS = [
-        [558, 'Первый канал', '#0d47a1', '#1e88e5'],
-        [1199, 'НТВ', '#1b5e20', '#43a047'],
-        [1191, 'ТНТ', '#4a148c', '#8e24aa'],
-        [806, 'СТС', '#e65100', '#ffb300']
+        [558, 'Первый канал', '#0b3d91', '#1e7be0'],
+        [1199, 'НТВ', '#1a5f1f', '#3fa046'],
+        [1191, 'ТНТ', '#3f0f86', '#8a2bc2'],
+        [806, 'СТС', '#e04e00', '#ffae00']
     ];
 
     var GENRES = [
-        [35, 'Комедии'], [18, 'Драмы'], [28, 'Боевики'], [10752, 'Военные'],
-        [80, 'Криминал'], [9648, 'Детективы'], [53, 'Триллеры'], [878, 'Фантастика'],
-        [36, 'Исторические'], [10751, 'Семейные'], [10749, 'Мелодрамы']
+        [35, 'Комедии', 'laugh'], [18, 'Драмы', 'drama'], [28, 'Боевики', 'bolt'],
+        [10752, 'Военные', 'shield'], [80, 'Криминал', 'lock'], [9648, 'Детективы', 'search'],
+        [53, 'Триллеры', 'eye'], [878, 'Фантастика', 'rocket'], [36, 'Исторические', 'column'],
+        [10751, 'Семейные', 'home'], [10749, 'Мелодрамы', 'heart']
     ];
 
     function sections() {
         var t = fmt(new Date());
         var allCinemas = CINEMAS.map(function (n) { return n[0]; }).join('|');
 
-        function net(n, kind) {
-            return { title: n[1], sub: kind, url: 'discover/tv?with_networks=' + n[0] + '&sort_by=popularity.desc', c1: n[2], c2: n[3] };
+        function net(n, kind, icon) {
+            return {
+                title: n[1], sub: kind, icon: icon, light: !!n[4],
+                url: 'discover/tv?with_networks=' + n[0] + '&sort_by=popularity.desc',
+                c1: n[2], c2: n[3]
+            };
         }
 
         return [
             {
                 title: 'Сейчас смотрят',
                 tiles: [
-                    { title: 'Фильмы', sub: 'Популярно сейчас', url: 'discover/movie?' + RU + '&sort_by=popularity.desc&primary_release_date.gte=' + daysAgo(120) + '&primary_release_date.lte=' + t, c1: '#b71c1c', c2: '#ef5350' },
-                    { title: 'Сериалы', sub: 'Популярно сейчас', url: 'discover/tv?' + RU + '&sort_by=popularity.desc&air_date.gte=' + daysAgo(30) + '&air_date.lte=' + t, c1: '#880e4f', c2: '#ec407a' },
-                    { title: 'Новинки кинотеатров', sub: 'Сериалы', url: 'discover/tv?with_networks=' + allCinemas + '&sort_by=first_air_date.desc&first_air_date.lte=' + t, c1: '#263238', c2: '#607d8b' }
+                    { title: 'Фильмы', sub: 'Популярно сейчас', icon: 'fire', url: 'discover/movie?' + RU + '&sort_by=popularity.desc&primary_release_date.gte=' + daysAgo(120) + '&primary_release_date.lte=' + t, c1: '#b3122a', c2: '#ff4d4d' },
+                    { title: 'Сериалы', sub: 'Популярно сейчас', icon: 'fire', url: 'discover/tv?' + RU + '&sort_by=popularity.desc&air_date.gte=' + daysAgo(30) + '&air_date.lte=' + t, c1: '#8a0f5c', c2: '#e83e8c' },
+                    { title: 'Новинки кинотеатров', sub: 'Сериалы', icon: 'news', url: 'discover/tv?with_networks=' + allCinemas + '&sort_by=first_air_date.desc&first_air_date.lte=' + t, c1: '#1f2a44', c2: '#4b6cb7' }
                 ]
             },
             {
                 title: 'Онлайн-кинотеатры',
-                tiles: CINEMAS.map(function (n) { return net(n, 'Сериалы'); })
+                tiles: CINEMAS.map(function (n) { return net(n, 'Сериалы', 'play'); })
             },
             {
                 title: 'Телеканалы',
-                tiles: CHANNELS.map(function (n) { return net(n, 'Сериалы и шоу'); })
+                tiles: CHANNELS.map(function (n) { return net(n, 'Сериалы и шоу', 'tv'); })
             },
             {
                 title: 'Мультфильмы',
                 tiles: [
-                    { title: 'Мультфильмы', sub: 'Популярные', url: 'discover/movie?' + RU + '&with_genres=16&sort_by=popularity.desc', c1: '#00897b', c2: '#4db6ac' },
-                    { title: 'Мультсериалы', sub: 'Популярные', url: 'discover/tv?' + RU + '&with_genres=16&sort_by=popularity.desc', c1: '#00838f', c2: '#4dd0e1' },
-                    { title: 'Советские', sub: 'Мультфильмы', url: 'discover/movie?' + SU + '&with_genres=16&sort_by=vote_count.desc', c1: '#bf360c', c2: '#ff7043' }
+                    { title: 'Мультфильмы', sub: 'Популярные', icon: 'smile', url: 'discover/movie?' + RU + '&with_genres=16&sort_by=popularity.desc', c1: '#00897b', c2: '#3dd6b5' },
+                    { title: 'Мультсериалы', sub: 'Популярные', icon: 'smile', url: 'discover/tv?' + RU + '&with_genres=16&sort_by=popularity.desc', c1: '#0077a8', c2: '#35c3e8' },
+                    { title: 'Советские', sub: 'Мультфильмы', icon: 'star', url: 'discover/movie?' + SU + '&with_genres=16&sort_by=vote_count.desc', c1: '#b23a00', c2: '#ff7a3d' }
                 ]
             },
             {
                 title: 'Фильмы и сериалы',
                 tiles: [
-                    { title: 'Фильмы', sub: 'Популярные', url: 'discover/movie?' + RU + '&sort_by=popularity.desc', c1: '#283593', c2: '#5c6bc0' },
-                    { title: 'Фильмы', sub: 'Новинки', url: 'discover/movie?' + RU + '&sort_by=primary_release_date.desc&primary_release_date.lte=' + t + '&vote_count.gte=5', c1: '#1565c0', c2: '#42a5f5' },
-                    { title: 'Фильмы', sub: 'Лучшие', url: 'discover/movie?' + RU + '&sort_by=vote_average.desc&vote_count.gte=200', c1: '#f9a825', c2: '#ffd54f' },
-                    { title: 'Сериалы', sub: 'Популярные', url: 'discover/tv?' + RU + '&sort_by=popularity.desc', c1: '#4527a0', c2: '#7e57c2' },
-                    { title: 'Сериалы', sub: 'Новинки', url: 'discover/tv?' + RU + '&sort_by=first_air_date.desc&first_air_date.lte=' + t + '&vote_count.gte=3', c1: '#6a1b9a', c2: '#ab47bc' },
-                    { title: 'Сериалы', sub: 'Лучшие', url: 'discover/tv?' + RU + '&sort_by=vote_average.desc&vote_count.gte=100', c1: '#ef6c00', c2: '#ffa726' },
-                    { title: 'Советское кино', sub: 'Фильмы', url: 'discover/movie?' + SU + '&sort_by=vote_count.desc', c1: '#8d1c1c', c2: '#c62828' }
+                    { title: 'Фильмы', sub: 'Популярные', icon: 'film', url: 'discover/movie?' + RU + '&sort_by=popularity.desc', c1: '#23308f', c2: '#5868d6' },
+                    { title: 'Фильмы', sub: 'Новинки', icon: 'clock', url: 'discover/movie?' + RU + '&sort_by=primary_release_date.desc&primary_release_date.lte=' + t + '&vote_count.gte=5', c1: '#0f5fb8', c2: '#3fa7f5' },
+                    { title: 'Фильмы', sub: 'Лучшие', icon: 'star', light: true, url: 'discover/movie?' + RU + '&sort_by=vote_average.desc&vote_count.gte=200', c1: '#f2b705', c2: '#ffd95a' },
+                    { title: 'Сериалы', sub: 'Популярные', icon: 'series', url: 'discover/tv?' + RU + '&sort_by=popularity.desc', c1: '#3e2196', c2: '#7b55d6' },
+                    { title: 'Сериалы', sub: 'Новинки', icon: 'clock', url: 'discover/tv?' + RU + '&sort_by=first_air_date.desc&first_air_date.lte=' + t + '&vote_count.gte=3', c1: '#651a95', c2: '#b24ad1' },
+                    { title: 'Сериалы', sub: 'Лучшие', icon: 'star', url: 'discover/tv?' + RU + '&sort_by=vote_average.desc&vote_count.gte=100', c1: '#d65a00', c2: '#ffa13d' },
+                    { title: 'Советское кино', sub: 'Фильмы', icon: 'hammer', url: 'discover/movie?' + SU + '&sort_by=vote_count.desc', c1: '#7a1010', c2: '#c62828' }
                 ]
             },
             {
@@ -103,15 +142,15 @@
                 tiles: GENRES.map(function (g, i) {
                     var hue = Math.round(i * 360 / GENRES.length);
                     return {
-                        title: g[1], sub: 'Фильмы',
+                        title: g[1], sub: 'Фильмы', icon: g[2],
                         url: 'discover/movie?' + RU + '&with_genres=' + g[0] + '&sort_by=popularity.desc',
-                        c1: 'hsl(' + hue + ',55%,30%)', c2: 'hsl(' + hue + ',60%,48%)'
+                        c1: 'hsl(' + hue + ',60%,28%)', c2: 'hsl(' + hue + ',65%,46%)'
                     };
                 }).concat([
                     // Ключевые слова TMDB: 190370 — erotic movie, 155477 — softcore, 445 — pornography.
                     // Российских фильмов с ними почти нет, поэтому подборки без фильтра по стране.
-                    { title: 'Эротика', sub: 'Фильмы', url: 'discover/movie?with_keywords=190370|155477&sort_by=popularity.desc', c1: '#4a0d1f', c2: '#8e1b3a' },
-                    { title: '18+', sub: 'Фильмы', url: 'discover/movie?include_adult=true&with_keywords=445&sort_by=popularity.desc', c1: '#1a0008', c2: '#5c0a1e' }
+                    { title: 'Эротика', sub: 'Фильмы', icon: 'flame', url: 'discover/movie?with_keywords=190370|155477&sort_by=popularity.desc', c1: '#4a0d1f', c2: '#9b1f42' },
+                    { title: '18+', sub: 'Фильмы', icon: 'adult', url: 'discover/movie?include_adult=true&with_keywords=445&sort_by=popularity.desc', c1: '#1a0008', c2: '#5c0a1e' }
                 ])
             }
         ];
@@ -123,16 +162,27 @@
         if ($('#rus-menu-style').length) return;
 
         var css =
-            '.rus-menu{padding:1.5em 1.5em 3em}' +
-            '.rus-menu__title{font-size:1.6em;font-weight:600;margin:1.2em 0 .6em;opacity:.9}' +
-            '.rus-menu__title:first-child{margin-top:0}' +
-            '.rus-menu__grid{display:flex;flex-wrap:wrap;margin:0 -.5em}' +
-            '.rus-tile{width:14em;height:8em;margin:.5em;border-radius:1em;padding:1em;box-sizing:border-box;' +
-            'display:flex;flex-direction:column;justify-content:flex-end;color:#fff;' +
-            'box-shadow:0 .3em 1em rgba(0,0,0,.35);transition:transform .15s}' +
-            '.rus-tile__name{font-size:1.5em;font-weight:700;line-height:1.1;text-shadow:0 .1em .3em rgba(0,0,0,.4)}' +
-            '.rus-tile__sub{font-size:1em;opacity:.85;margin-top:.3em}' +
-            '.rus-tile.focus{transform:scale(1.07);outline:.25em solid #fff;outline-offset:.15em}';
+            '.rus-menu{padding:1.5em 1.5em 4em}' +
+            '.rus-menu__title{font-size:1.6em;font-weight:600;margin:1.4em 0 .5em;opacity:.9}' +
+            '.rus-menu__title:first-child{margin-top:.3em}' +
+            '.rus-menu__grid{display:flex;flex-wrap:wrap;margin:0 -.6em}' +
+            '.rus-tile{position:relative;overflow:hidden;width:15em;height:8.5em;margin:.6em;border-radius:1em;' +
+            'padding:1em 1.1em;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;' +
+            'color:#fff;box-shadow:0 .4em 1.2em rgba(0,0,0,.4);transition:transform .15s,box-shadow .15s}' +
+            '.rus-tile:after{content:"";position:absolute;left:0;right:0;bottom:0;height:60%;' +
+            'background:linear-gradient(to top,rgba(0,0,0,.28),rgba(0,0,0,0));pointer-events:none}' +
+            '.rus-tile--light{color:#1b1b1b}' +
+            '.rus-tile--light:after{background:none}' +
+            '.rus-tile__icon{position:absolute;top:.8em;right:.9em;width:2.6em;height:2.6em;opacity:.9}' +
+            '.rus-tile__icon svg{width:100%;height:100%}' +
+            '.rus-tile__badge{display:inline-block;font-size:1.2em;font-weight:800;border:.15em solid currentColor;' +
+            'border-radius:.4em;padding:.05em .3em}' +
+            '.rus-tile__name{position:relative;z-index:1;font-size:1.75em;font-weight:800;line-height:1.05;' +
+            'letter-spacing:-.01em;text-shadow:0 .08em .3em rgba(0,0,0,.35)}' +
+            '.rus-tile--light .rus-tile__name{text-shadow:none}' +
+            '.rus-tile__sub{position:relative;z-index:1;font-size:1.05em;font-weight:500;opacity:.9;margin-top:.35em}' +
+            '.rus-tile.focus{transform:scale(1.08);box-shadow:0 .6em 2em rgba(0,0,0,.6);' +
+            'outline:.22em solid #fff;outline-offset:.18em;z-index:2}';
 
         $('<style id="rus-menu-style">' + css + '</style>').appendTo('head');
     }
@@ -140,10 +190,14 @@
     // ---------- страница с плитками ----------
 
     function Page(object) {
-        var scroll = new Lampa.Scroll({ mask: true, over: true });
+        var scroll = new Lampa.Scroll({ mask: true, over: true, step: 300 });
         var html = $('<div></div>');
         var body = $('<div class="rus-menu"></div>');
         var last;
+
+        function tileTitle(tile) {
+            return tile.title + (tile.sub ? ': ' + tile.sub.toLowerCase() : '');
+        }
 
         this.create = function () {
             addStyle();
@@ -155,9 +209,13 @@
 
                 section.tiles.forEach(function (tile) {
                     var el = $('<div class="rus-tile selector">' +
+                        '<div class="rus-tile__icon"></div>' +
                         '<div class="rus-tile__name"></div>' +
                         '<div class="rus-tile__sub"></div></div>');
 
+                    if (tile.light) el.addClass('rus-tile--light');
+
+                    el.find('.rus-tile__icon').html(ICONS[tile.icon] || '');
                     el.find('.rus-tile__name').text(tile.title);
                     el.find('.rus-tile__sub').text(tile.sub || '');
                     el.css('background', 'linear-gradient(135deg,' + tile.c1 + ',' + tile.c2 + ')');
@@ -170,7 +228,7 @@
                     el.on('hover:enter', function () {
                         Lampa.Activity.push({
                             url: tile.url,
-                            title: tile.title + (tile.sub ? ': ' + tile.sub.toLowerCase() : ''),
+                            title: tileTitle(tile),
                             component: 'category_full',
                             source: 'tmdb',
                             card_type: true,
@@ -184,8 +242,13 @@
                 body.append(grid);
             });
 
+            // minus() ограничивает высоту области под шапкой — без этого Lampa не прокручивает страницу.
+            if (scroll.minus) scroll.minus();
+
             scroll.append(body);
             html.append(scroll.render());
+
+            if (Lampa.Layer && Lampa.Layer.update) Lampa.Layer.update(html);
 
             this.activity.loader(false);
             this.activity.toggle();
