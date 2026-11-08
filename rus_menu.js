@@ -2,7 +2,7 @@
  * «Русское» — раздел с российскими фильмами и сериалами для Lampa.
  * Только каталог (данные TMDB), видео плагин не содержит.
  * Работает с обычной Lampa, источник данных — TMDB.
- * Версия 10: жанр «Реальные события», на каждой плитке видно, как отсортированы фильмы.
+ * Версия 11: «Эротика» и «18+» по популярности, только на европейских языках, английском и русском.
  */
 (function () {
     'use strict';
@@ -80,6 +80,10 @@
         [1191, 'ТНТ', '#3f0f86', '#8a2bc2'],
         [806, 'СТС', '#e04e00', '#ffae00']
     ];
+
+    // Языки оригинала для «Эротики» и «18+»
+    var WEST_LANGS = ['en', 'ru', 'uk', 'fr', 'de', 'it', 'es', 'pt', 'nl', 'sv', 'da', 'no', 'fi',
+        'pl', 'cs', 'sk', 'hu', 'ro', 'el', 'sr', 'hr', 'bg'].join('|');
 
     var GENRES = [
         [35, 'Комедии', 'laugh'], [18, 'Драмы', 'drama'], [28, 'Боевики', 'bolt'],
@@ -299,9 +303,10 @@
                     { title: 'Реальные события', sub: 'Фильмы', icon: 'news', url: 'discover/movie?' + RU + '&with_keywords=' + trueStoryIds() + '&sort_by=popularity.desc', c1: '#3e4a1a', c2: '#7d8f2e' },
                     { title: 'Реальные события', sub: 'Сериалы', icon: 'news', url: 'discover/tv?' + RU + '&with_keywords=' + trueStoryIds() + '&sort_by=popularity.desc', c1: '#2f3d14', c2: '#6a7d25' },
                     // Ключевые слова TMDB: 190370 — erotic movie, 155477 — softcore, 445 — pornography.
+                    // Фильтр по языку оригинала: английский, русский и европейские языки.
                     // Российских фильмов с ними почти нет, поэтому подборки без фильтра по стране.
-                    { title: 'Эротика', sub: 'Новинки', icon: 'flame', url: 'discover/movie?with_keywords=190370|155477&sort_by=primary_release_date.desc&primary_release_date.lte=' + t, c1: '#4a0d1f', c2: '#9b1f42' },
-                    { title: '18+', sub: 'Новинки', icon: 'adult', url: 'discover/movie?include_adult=true&with_keywords=445&sort_by=primary_release_date.desc&primary_release_date.lte=' + t, c1: '#1a0008', c2: '#5c0a1e' }
+                    { title: 'Эротика', sub: 'Фильмы', icon: 'flame', url: 'discover/movie?with_keywords=190370|155477&with_original_language=' + WEST_LANGS + '&sort_by=popularity.desc', c1: '#4a0d1f', c2: '#9b1f42' },
+                    { title: '18+', sub: 'Фильмы', icon: 'adult', url: 'discover/movie?include_adult=true&with_keywords=445&with_original_language=' + WEST_LANGS + '&sort_by=popularity.desc', c1: '#1a0008', c2: '#5c0a1e' }
                 ])
             }
         ];
