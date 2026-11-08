@@ -2,6 +2,7 @@
  * «Русское» — раздел с российскими фильмами и сериалами для Lampa.
  * Только каталог (данные TMDB), видео плагин не содержит.
  * Работает с обычной Lampa, источник данных — TMDB.
+ * Версия 4: возврат в меню по кнопке «Назад», раздел «Мультфильмы».
  */
 (function () {
     'use strict';
@@ -30,6 +31,14 @@
         { id: 806, name: 'СТС' }
     ];
 
+    var TITLES = {
+        main: 'Русское',
+        cinemas: 'Онлайн-кинотеатры',
+        channels: 'Телеканалы',
+        genres: 'Жанры',
+        cartoons: 'Мультфильмы'
+    };
+
     // ---------- даты ----------
 
     function fmt(d) {
@@ -46,19 +55,6 @@
         return fmt(d);
     }
 
-    // ---------- открытие подборки ----------
-
-    function open(item) {
-        Lampa.Activity.push({
-            url: item.url,
-            title: item.title,
-            component: 'category_full',
-            source: 'tmdb',
-            card_type: true,
-            page: 1
-        });
-    }
-
     function ids(list) {
         return list.map(function (n) { return n.id; }).join('|');
     }
@@ -72,6 +68,7 @@
             { title: 'Сейчас смотрят: сериалы', url: 'discover/tv?' + RU + '&sort_by=popularity.desc&air_date.gte=' + daysAgo(30) + '&air_date.lte=' + t },
             { title: 'Онлайн-кинотеатры  ›', submenu: 'cinemas' },
             { title: 'Телеканалы  ›', submenu: 'channels' },
+            { title: 'Мультфильмы  ›', submenu: 'cartoons' },
             { title: 'Жанры  ›', submenu: 'genres' },
             { title: 'Фильмы: популярные', url: 'discover/movie?' + RU + '&sort_by=popularity.desc' },
             { title: 'Фильмы: новинки', url: 'discover/movie?' + RU + '&sort_by=primary_release_date.desc&primary_release_date.lte=' + t + '&vote_count.gte=5' },
@@ -95,6 +92,21 @@
         return items;
     }
 
+    function cartoonItems() {
+        var t = today();
+        var A = '&with_genres=16';
+        return [
+            { title: 'Мультфильмы: популярные', url: 'discover/movie?' + RU + A + '&sort_by=popularity.desc' },
+            { title: 'Мультфильмы: новинки', url: 'discover/movie?' + RU + A + '&sort_by=primary_release_date.desc&primary_release_date.lte=' + t + '&vote_count.gte=3' },
+            { title: 'Мультфильмы: лучшие', url: 'discover/movie?' + RU + A + '&sort_by=vote_average.desc&vote_count.gte=50' },
+            { title: 'Мультсериалы: популярные', url: 'discover/tv?' + RU + A + '&sort_by=popularity.desc' },
+            { title: 'Мультсериалы: новинки', url: 'discover/tv?' + RU + A + '&sort_by=first_air_date.desc&first_air_date.lte=' + t },
+            { title: 'Мультсериалы: лучшие', url: 'discover/tv?' + RU + A + '&sort_by=vote_average.desc&vote_count.gte=20' },
+            { title: 'Советские мультфильмы', url: 'discover/movie?with_origin_country=SU' + A + '&sort_by=vote_count.desc' },
+            { title: 'Советские мультсериалы', url: 'discover/tv?with_origin_country=SU' + A + '&sort_by=vote_count.desc' }
+        ];
+    }
+
     function genreItems() {
         var g = [
             ['Комедии', 35],
@@ -107,48 +119,78 @@
             ['Фантастика', 878],
             ['Исторические', 36],
             ['Семейные', 10751],
-            ['Мелодрамы', 10749],
-            ['Мультфильмы', 16]
+            ['Мелодрамы', 10749]
         ];
         return g.map(function (x) {
             return { title: x[0], url: 'discover/movie?' + RU + '&with_genres=' + x[1] + '&sort_by=popularity.desc' };
         });
     }
 
-    // ---------- окна выбора ----------
+    function itemsFor(kind) {
+        if (kind === 'cinemas') return networkItems(CINEMAS, 'Все кинотеатры');
+        if (kind === 'channels') return networkItems(CHANNELS, 'Все каналы');
+        if (kind === 'cartoons') return cartoonItems();
+        if (kind === 'genres') return genreItems();
+        return mainItems();
+    }
 
-    function showSub(kind) {
-        var title, items;
+    // ---------- открытие подборки и возврат в меню ----------
 
-        if (kind === 'cinemas') {
-            title = 'Онлайн-кинотеатры';
-            items = networkItems(CINEMAS, 'Все кинотеатры');
-        } else if (kind === 'channels') {
-            title = 'Телеканалы';
-            items = networkItems(CHANNELS, 'Все каналы');
-        } else {
-            title = 'Жанры';
-            items = genreItems();
-        }
+    var counter = 0;
+    var opened = {}; // id -> активность, из которой открыли подборку
 
-        Lampa.Select.show({
-            title: title,
-            items: items,
-            onSelect: open,
-            onBack: showMenu
+    function open(item, kind) {
+        counter++;
+        opened[counter] = Lampa.Activity.active ? Lampa.Activity.active() : null;
+
+        Lampa.Activity.push({
+            url: item.url,
+            title: item.title,
+            component: 'category_full',
+            source: 'tmdb',
+            card_type: true,
+            page: 1,
+            rus_menu_back: kind,
+            rus_menu_id: counter
         });
     }
 
-    function showMenu() {
+    // Когда подборку закрывают кнопкой «Назад», снова показываем меню,
+    // из которого её открыли.
+    function watchBack() {
+        Lampa.Listener.follow('activity', function (e) {
+            if (!e || e.type !== 'destroy' || !e.object || !e.object.rus_menu_back) return;
+
+            var id = e.object.rus_menu_id;
+            var from = opened[id];
+            delete opened[id];
+
+            var active = Lampa.Activity.active ? Lampa.Activity.active() : null;
+
+            // Закрыли не кнопкой «Назад» (например, Lampa чистит старую историю) — ничего не делаем.
+            if (!from || active !== from) return;
+
+            show(e.object.rus_menu_back, 'content');
+        });
+    }
+
+    // ---------- окно выбора ----------
+
+    // exitTo: куда вернуть фокус при выходе из главного окна — 'menu' или 'content'
+    function show(kind, exitTo) {
+        kind = kind || 'main';
+        exitTo = exitTo || 'menu';
+
         Lampa.Select.show({
-            title: 'Русское',
-            items: mainItems(),
+            title: TITLES[kind] || TITLES.main,
+            items: itemsFor(kind),
             onSelect: function (item) {
-                if (item.submenu) showSub(item.submenu);
-                else open(item);
+                if (item.submenu) show(item.submenu, exitTo);
+                else open(item, kind);
             },
             onBack: function () {
-                Lampa.Controller.toggle('menu');
+                if (kind !== 'main') show('main', exitTo);
+                else Lampa.Controller.toggle(exitTo);
             }
         });
     }
@@ -163,13 +205,17 @@
             '<div class="menu__ico">' + icon + '</div>' +
             '<div class="menu__text">Русское</div></li>');
 
-        item.on('hover:enter', showMenu);
+        item.on('hover:enter', function () {
+            show('main', 'menu');
+        });
 
         var menu = (Lampa.Menu && Lampa.Menu.render) ? Lampa.Menu.render() : $('.menu');
         var after = menu.find('[data-action="tv"]');
 
         if (after.length) after.eq(0).after(item);
         else menu.find('.menu__list').eq(0).append(item);
+
+        watchBack();
     }
 
     if (window.appready) start();
