@@ -2,7 +2,7 @@
  * «Русское» — раздел с российскими фильмами и сериалами для Lampa.
  * Только каталог (данные TMDB), видео плагин не содержит.
  * Работает с обычной Lampa, источник данных — TMDB.
- * Версия 12: обложки на плитках, настройки плагина, блоки «По годам» и «Подборки», Амедиатека.
+ * Версия 13: пустые плитки скрываются, кэш, «Детское», «Выходят сейчас», франшизы, случайный фильм.
  */
 (function () {
     'use strict';
@@ -23,6 +23,12 @@
     function daysAgo(n) {
         var d = new Date();
         d.setDate(d.getDate() - n);
+        return fmt(d);
+    }
+
+    function daysAhead(n) {
+        var d = new Date();
+        d.setDate(d.getDate() + n);
         return fmt(d);
     }
 
@@ -51,6 +57,7 @@
         ['films', 'Фильмы и сериалы'],
         ['picks', 'Подборки'],
         ['years', 'По годам'],
+        ['franchises', 'Франшизы'],
         ['genres', 'Жанры']
     ];
 
@@ -148,6 +155,29 @@
         }
     }
 
+    // Кэш найденных номеров на неделю, чтобы не спрашивать TMDB при каждом запуске
+    var CACHE_KEY = 'rus_menu_cache';
+    var CACHE_DAYS = 7;
+
+    function cacheGet() {
+        try {
+            var c = Lampa.Storage.get(CACHE_KEY, '{}');
+            if (typeof c === 'string') c = JSON.parse(c || '{}');
+            if (c && c.time && Date.now() - c.time < CACHE_DAYS * 864e5) return c;
+        } catch (e) {}
+        return {};
+    }
+
+    function cacheSave() {
+        try {
+            if (providers && trueStory) {
+                Lampa.Storage.set(CACHE_KEY, { time: Date.now(), providers: providers, trueStory: trueStory });
+            }
+        } catch (e) {}
+    }
+
+    var cached = {};
+
     // Провайдеры «где посмотреть» в России: id кинотеатра -> id провайдера
     var providers = null;
     var providersFallback = {};
@@ -166,6 +196,7 @@
 
             providers = found;
             providersFallback = found;
+            cacheSave();
             done();
         }, function () {
             done(); // при ошибке не запоминаем — в следующий раз попробуем снова
@@ -199,6 +230,7 @@
             });
 
             trueStory = ids.length ? ids.join('|') : TRUE_STORY_FALLBACK;
+            cacheSave();
             done();
         }, function () {
             done();
@@ -207,6 +239,124 @@
 
     function trueStoryIds() {
         return trueStory || TRUE_STORY_FALLBACK;
+    }
+
+    // ---------- франшизы ----------
+    // Коллекцию ищем в TMDB по названию (по-русски, затем по-английски),
+    // фильмы показываем по порядку выхода.
+
+    var FRANCHISES = [
+        ['Последний богатырь', 'The Last Warrior'],
+        ['Холоп', 'Serf'],
+        ['Ёлки', 'Yolki'],
+        ['Майор Гром', 'Major Grom'],
+        ['Горько!', 'Bitter!'],
+        ['Три богатыря', 'Three Heroes'],
+        ['Иван Царевич и Серый Волк', 'Ivan Tsarevich and the Gray Wolf'],
+        ['Чебурашка', 'Cheburashka']
+    ];
+
+    var collectionIds = {};
+
+    function findCollection(names, done) {
+        var key = names[0];
+        if (collectionIds[key] !== undefined) return done(collectionIds[key]);
+
+        var i = 0;
+
+        (function tryNext() {
+            if (i >= names.length) {
+                collectionIds[key] = 0;
+                return done(0);
+            }
+
+            var q = names[i++];
+
+            tmdbGet('search/collection?language=ru&query=' + encodeURIComponent(q), function (json) {
+                var res = (json && json.results) || [];
+                if (res.length) {
+                    collectionIds[key] = res[0].id;
+                    done(res[0].id);
+                } else tryNext();
+            }, tryNext);
+        })();
+    }
+
+    function franchiseList(names, ok, fail) {
+        findCollection(names, function (id) {
+            if (!id) return ok({ results: [], page: 1, total_pages: 1 });
+
+            tmdbGet('collection/' + id + '?language=ru', function (json) {
+                var parts = ((json && json.parts) || []).slice();
+
+                parts.sort(function (a, b) {
+                    return String(a.release_date || '9999').localeCompare(String(b.release_date || '9999'));
+                });
+
+                parts.forEach(function (p) { p.source = 'tmdb'; });
+
+                ok({ results: parts, page: 1, total_pages: 1, total_results: parts.length });
+            }, fail);
+        });
+    }
+
+    // Свой источник: всё берёт у TMDB, кроме подборок вида «franchise:N»
+    function registerSource() {
+        try {
+            var tmdb = Lampa.Api.sources.tmdb;
+            var own = {};
+
+            for (var k in tmdb) own[k] = tmdb[k];
+
+            own.list = function (params, ok, fail) {
+                var m = /^franchise:(\d+)/.exec(params.url || '');
+                if (m) return franchiseList(FRANCHISES[+m[1]], ok, fail);
+                return tmdb.list(params, ok, fail);
+            };
+
+            if (!own.clear) own.clear = function () {};
+
+            Lampa.Api.sources[COMPONENT] = own;
+        } catch (e) {
+            console.log('[RusMenu] source:', e);
+        }
+    }
+
+    function listOf(tile, ok, fail) {
+        var src = (Lampa.Api.sources[tile.source || 'tmdb']) || Lampa.Api.sources.tmdb;
+        src.list({ url: tile.url, page: 1 }, ok, fail);
+    }
+
+    // ---------- случайный фильм ----------
+
+    function openRandom() {
+        var url = 'discover/movie?' + RU + '&vote_average.gte=7&vote_count.gte=100&sort_by=popularity.desc';
+        var tmdb = Lampa.Api.sources.tmdb;
+
+        function fail() {
+            try { Lampa.Noty.show('Не получилось выбрать фильм, попробуйте ещё раз'); } catch (e) {}
+        }
+
+        tmdb.list({ url: url, page: 1 }, function (first) {
+            var pages = Math.min((first && first.total_pages) || 1, 20);
+            var page = 1 + Math.floor(Math.random() * pages);
+
+            tmdb.list({ url: url, page: page }, function (json) {
+                var items = (json && json.results) || [];
+                if (!items.length) return fail();
+
+                var card = items[Math.floor(Math.random() * items.length)];
+
+                Lampa.Activity.push({
+                    url: '',
+                    component: 'full',
+                    id: card.id,
+                    method: 'movie',
+                    card: card,
+                    source: 'tmdb'
+                });
+            }, fail);
+        }, fail);
     }
 
     // ---------- как отсортирована подборка ----------
@@ -223,7 +373,7 @@
         var sub = tile.sub || '';
         var label = tile.url ? sortLabel(tile.url) : '';
 
-        if (tile.service || !label || /популяр|новинк|лучш|известн/i.test(sub + ' ' + tile.title)) return sub;
+        if (tile.service || tile.noSort || !label || /популяр|новинк|лучш|известн/i.test(sub + ' ' + tile.title)) return sub;
         return sub ? sub + ' · ' + label : label.charAt(0).toUpperCase() + label.slice(1);
     }
 
@@ -261,6 +411,40 @@
         return [{ title: c.name, tiles: tiles }];
     }
 
+    function kidsSections() {
+        var t = fmt(new Date());
+        var A = '&with_genres=16';
+
+        return [
+            {
+                title: 'Мультфильмы',
+                tiles: [
+                    { title: 'Мультфильмы', sub: 'Популярные', icon: 'smile', url: 'discover/movie?' + RU + A + '&sort_by=popularity.desc', c1: '#00897b', c2: '#3dd6b5' },
+                    { title: 'Мультфильмы', sub: 'Новинки', icon: 'clock', url: 'discover/movie?' + RU + A + '&sort_by=primary_release_date.desc&primary_release_date.lte=' + t + '&vote_count.gte=3', c1: '#00695c', c2: '#26a69a' },
+                    { title: 'Мультфильмы', sub: 'Лучшие', icon: 'star', url: 'discover/movie?' + RU + A + '&sort_by=vote_average.desc&vote_count.gte=50', c1: '#f2b705', c2: '#ffd95a', light: true },
+                    { title: 'Со всего мира', sub: 'Мультфильмы', icon: 'smile', url: 'discover/movie?' + A + '&sort_by=popularity.desc&vote_count.gte=200', c1: '#1565c0', c2: '#42a5f5' }
+                ]
+            },
+            {
+                title: 'Мультсериалы',
+                tiles: [
+                    { title: 'Мультсериалы', sub: 'Популярные', icon: 'series', url: 'discover/tv?' + RU + A + '&sort_by=popularity.desc', c1: '#0077a8', c2: '#35c3e8' },
+                    { title: 'Мультсериалы', sub: 'Новинки', icon: 'clock', url: 'discover/tv?' + RU + A + '&sort_by=first_air_date.desc&first_air_date.lte=' + t, c1: '#01579b', c2: '#0288d1' },
+                    { title: 'Со всего мира', sub: 'Мультсериалы', icon: 'series', url: 'discover/tv?' + A + '&sort_by=popularity.desc&vote_count.gte=100', c1: '#4527a0', c2: '#7e57c2' }
+                ]
+            },
+            {
+                title: 'Классика и семейное',
+                tiles: [
+                    { title: 'Советские', sub: 'Мультфильмы', icon: 'star', url: 'discover/movie?' + SU + A + '&sort_by=vote_count.desc', c1: '#b23a00', c2: '#ff7a3d' },
+                    { title: 'Советские', sub: 'Мультсериалы', icon: 'star', url: 'discover/tv?' + SU + A + '&sort_by=vote_count.desc', c1: '#8e2f00', c2: '#e0652a' },
+                    { title: 'Семейные', sub: 'Фильмы', icon: 'home', url: 'discover/movie?' + RU + '&with_genres=10751&without_genres=16&sort_by=popularity.desc', c1: '#6a1b9a', c2: '#ab47bc' },
+                    { title: 'Сказки', sub: 'Фильмы', icon: 'rocket', url: 'discover/movie?' + RU + '&with_genres=14|10751&without_genres=16,27,53&sort_by=popularity.desc', c1: '#283593', c2: '#5c6bc0' }
+                ]
+            }
+        ];
+    }
+
     function sections() {
         var t = fmt(new Date());
         var year = new Date().getFullYear();
@@ -279,6 +463,9 @@
             { title: 'Сериалы', sub: 'Популярно сейчас', icon: 'fire', url: 'discover/tv?' + RU + '&sort_by=popularity.desc&air_date.gte=' + daysAgo(30) + '&air_date.lte=' + t, c1: '#8a0f5c', c2: '#e83e8c' },
             { title: 'Новинки кинотеатров', sub: 'Сериалы', icon: 'news', url: 'discover/tv?with_networks=' + allNetworks + '&sort_by=first_air_date.desc&first_air_date.lte=' + t, c1: '#1f2a44', c2: '#4b6cb7' }
         ];
+        now.push({ title: 'Выходят сейчас', sub: 'Новые серии на этой неделе', icon: 'calendar', url: 'discover/tv?' + RU + '&air_date.gte=' + t + '&air_date.lte=' + daysAhead(7) + '&sort_by=popularity.desc', c1: '#004d40', c2: '#26a69a', noSort: true });
+        now.push({ title: 'Случайный фильм', sub: 'Российский, рейтинг 7+', icon: 'star', random: true, c1: '#37474f', c2: '#78909c' });
+
         if (provAll()) {
             now.push({ title: 'Новинки кинотеатров', sub: 'Фильмы', icon: 'news', url: 'discover/movie?with_watch_providers=' + provAll() + '&watch_region=RU&sort_by=primary_release_date.desc&primary_release_date.lte=' + t + '&vote_count.gte=1', c1: '#14365c', c2: '#2f80c9' });
         }
@@ -339,6 +526,16 @@
             { title: 'СССР: 60-е', sub: 'Фильмы', icon: 'hammer', url: 'discover/movie?' + SU + range(1960, 1969) + '&sort_by=vote_count.desc', c1: '#5a1616', c2: '#8c1c1c' }
         ];
         section('years', years);
+
+        // Франшизы — по порядку выхода
+        section('franchises', FRANCHISES.map(function (f, i) {
+            var hue = Math.round(i * 360 / FRANCHISES.length + 20);
+            return {
+                title: f[0], sub: 'Все части по порядку', icon: 'list', noSort: true,
+                url: 'franchise:' + i, source: COMPONENT,
+                c1: 'hsl(' + hue + ',45%,25%)', c2: 'hsl(' + hue + ',55%,42%)'
+            };
+        }));
 
         // Жанры
         var genres = GENRES.map(function (g, i) {
@@ -428,17 +625,23 @@
                     }
 
                     try {
-                        Lampa.Api.sources.tmdb.list({ url: job.url, page: 1 }, function (json) {
+                        listOf(job.tile, function (json) {
                             if (stopped) return;
 
                             var items = (json && json.results) || [];
+
+                            if (!items.length) {
+                                job.empty();
+                                return done();
+                            }
+
                             var pick = null;
 
                             for (var i = 0; i < items.length && !pick; i++) {
                                 if (items[i].backdrop_path) pick = items[i].backdrop_path;
                             }
 
-                            if (pick) job.apply(imageUrl(pick));
+                            if (pick && job.apply) job.apply(imageUrl(pick));
                             done();
                         }, done);
                     } catch (e) {
@@ -448,8 +651,8 @@
             }
         }
 
-        this.add = function (url, apply) {
-            queue.push({ url: url, apply: apply });
+        this.add = function (tile, apply, empty) {
+            queue.push({ tile: tile, apply: apply, empty: empty });
         };
 
         this.start = next;
@@ -473,6 +676,23 @@
         function tileTitle(tile) {
             var sub = tileSub(tile);
             return tile.title + (sub ? ' — ' + sub.toLowerCase() : '');
+        }
+
+        function removeTile(el, grid) {
+            if (last === el[0]) last = null;
+            el.remove();
+
+            // если в блоке не осталось плиток — убираем и заголовок
+            if (!grid.find('.rus-tile').length) {
+                grid.prev('.rus-menu__title').remove();
+                grid.remove();
+            }
+
+            try {
+                if (Lampa.Controller.enabled && Lampa.Controller.enabled().name === 'content' && Lampa.Activity.active() === object) {
+                    Lampa.Controller.collectionSet(scroll.render());
+                }
+            } catch (e) {}
         }
 
         function build(list) {
@@ -500,11 +720,14 @@
                     el.find('.rus-tile__bar').css('background', gradient);
                     el.css('background', gradient);
 
-                    // Обложки не ставим на плитки 18+
-                    if (withPosters && tile.url && !tile.adult) {
-                        posters.add(tile.url, function (src) {
+                    // Проверяем каждую подборку: пустую плитку убираем, на остальные ставим обложку.
+                    // Обложки не ставим на плитки 18+.
+                    if (tile.url) {
+                        posters.add(tile, withPosters && !tile.adult ? function (src) {
                             el.removeClass('rus-tile--light').addClass('rus-tile--poster');
                             el.css('background', 'linear-gradient(to top,rgba(0,0,0,.85),rgba(0,0,0,.25)),url("' + src + '") center/cover');
+                        } : null, function () {
+                            removeTile(el, grid);
                         });
                     }
 
@@ -515,6 +738,8 @@
                     });
 
                     el.on('hover:enter', function () {
+                        if (tile.random) return openRandom();
+
                         if (tile.service) {
                             Lampa.Activity.push({
                                 url: '',
@@ -530,7 +755,7 @@
                             url: tile.url,
                             title: tileTitle(tile),
                             component: 'category_full',
-                            source: 'tmdb',
+                            source: tile.source || 'tmdb',
                             card_type: true,
                             page: 1
                         });
@@ -555,7 +780,7 @@
 
             loadProviders(function () {
                 loadTrueStory(function () {
-                    build(cinema ? cinemaSections(cinema) : sections());
+                    build(object && object.rus_kids ? kidsSections() : (cinema ? cinemaSections(cinema) : sections()));
                     finishCreate();
                 });
             });
@@ -645,6 +870,7 @@
             });
 
             trigger('rus_menu_posters', 'Обложки на плитках', 'Фон из самого популярного фильма подборки');
+            trigger('rus_menu_kids', 'Пункт «Детское» в меню', 'Мультфильмы и семейное без взрослых жанров. Нужен перезапуск');
             trigger('rus_menu_adult', 'Показывать 18+', 'Плитки «Эротика» и «18+» в жанрах');
 
             SECTIONS.forEach(function (s) {
@@ -696,9 +922,20 @@
         });
     }
 
+    function openKids() {
+        Lampa.Activity.push({
+            url: '',
+            title: 'Детское',
+            component: COMPONENT,
+            rus_kids: true,
+            page: 1
+        });
+    }
+
     function start() {
         skipNavigation();
         addSettings();
+        registerSource();
 
         var icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">' +
             '<path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4h-4z"/></svg>';
@@ -714,10 +951,28 @@
 
         if (after.length) after.eq(0).after(item);
         else menu.find('.menu__list').eq(0).append(item);
+
+        if (opt('rus_menu_kids', true)) {
+            var kidsIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+                '<circle cx="12" cy="12" r="9"/><path d="M8 14c1 2 7 2 8 0M9 9h.01M15 9h.01"/></svg>';
+
+            var kids = $('<li class="menu__item selector" data-action="rus_kids">' +
+                '<div class="menu__ico">' + kidsIcon + '</div>' +
+                '<div class="menu__text">Детское</div></li>');
+
+            kids.on('hover:enter', openKids);
+            item.after(kids);
+        }
     }
 
-    // Компонент регистрируем сразу, чтобы Lampa могла открыть страницу при восстановлении истории.
+    // Компонент и источник регистрируем сразу, чтобы Lampa могла открыть страницу при восстановлении истории.
     Lampa.Component.add(COMPONENT, Page);
+    registerSource();
+
+    // Данные из кэша — страница откроется без ожидания TMDB
+    cached = cacheGet();
+    if (cached.providers) { providers = cached.providers; providersFallback = cached.providers; }
+    if (cached.trueStory) trueStory = cached.trueStory;
 
     if (window.appready) start();
     else {
